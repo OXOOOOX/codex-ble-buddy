@@ -1,0 +1,2 @@
+[[hooks.PermissionRequest]]
+command = "python C:\\Users\\23479\\Documents\\GitHub\\codex-ble-buddy\\scripts\\codex_permission_hook.py --timeout 30"

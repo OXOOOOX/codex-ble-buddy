@@ -1,0 +1,53 @@
+import io
+import unittest
+from pathlib import Path
+
+from codex_ble_buddy.codex_config import confirm_write, hook_config_block, prompt_config_path, toml_string, upsert_hook_block
+
+
+class CodexConfigTests(unittest.TestCase):
+    def test_toml_string_escapes_windows_path(self) -> None:
+        self.assertEqual(toml_string(r'C:\Path With Spaces\python.exe "x"'), r'"C:\\Path With Spaces\\python.exe \"x\""')
+
+    def test_hook_config_block_contains_permission_request(self) -> None:
+        block = hook_config_block("python -m codex_ble_buddy.cli approve-request --timeout 30")
+
+        self.assertIn("[[hooks.PermissionRequest]]", block)
+        self.assertIn("command =", block)
+        self.assertIn("BEGIN codex-ble-buddy", block)
+
+    def test_upsert_hook_block_appends_when_missing(self) -> None:
+        updated = upsert_hook_block("model = \"x\"\n", hook_config_block("cmd"))
+
+        self.assertIn('model = "x"', updated)
+        self.assertIn("[[hooks.PermissionRequest]]", updated)
+
+    def test_upsert_hook_block_replaces_managed_block(self) -> None:
+        old = upsert_hook_block("model = \"x\"\n", hook_config_block("old"))
+        new = upsert_hook_block(old, hook_config_block("new"))
+
+        self.assertIn("new", new)
+        self.assertNotIn("old", new)
+        self.assertEqual(new.count("[[hooks.PermissionRequest]]"), 1)
+
+    def test_prompt_config_path_supports_chinese(self) -> None:
+        stdout = io.StringIO()
+
+        result = prompt_config_path(Path(r"C:\Users\me\.codex\config.toml"), io.StringIO("\n"), stdout, language="zh")
+
+        self.assertEqual(result, Path(r"C:\Users\me\.codex\config.toml"))
+        self.assertIn("Codex 配置文件路径", stdout.getvalue())
+
+    def test_confirm_write_supports_chinese(self) -> None:
+        stdout = io.StringIO()
+
+        confirmed = confirm_write(Path("config.toml"), hook_config_block("cmd"), io.StringIO("y\n"), stdout, False, language="zh")
+
+        self.assertTrue(confirmed)
+        output = stdout.getvalue()
+        self.assertIn("将安装以下 Codex hook 配置", output)
+        self.assertIn("是否写入此配置", output)
+
+
+if __name__ == "__main__":
+    unittest.main()

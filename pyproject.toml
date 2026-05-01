@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-ble-buddy"
+version = "0.1.0"
+description = "Cross-platform BLE bridge for OpenAI Codex CLI approvals and M5StickS3 Buddy hardware."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "bleak>=0.22,<1.0",
+]
+
+[project.scripts]
+codex-ble-buddy = "codex_ble_buddy.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
