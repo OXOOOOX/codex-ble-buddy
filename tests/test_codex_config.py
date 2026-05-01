@@ -2,7 +2,14 @@ import io
 import unittest
 from pathlib import Path
 
-from codex_ble_buddy.codex_config import confirm_write, hook_config_block, prompt_config_path, toml_string, upsert_hook_block
+from codex_ble_buddy.codex_config import (
+    has_managed_hook_config,
+    confirm_write,
+    hook_config_block,
+    prompt_config_path,
+    toml_string,
+    upsert_hook_block,
+)
 
 
 class CodexConfigTests(unittest.TestCase):
@@ -47,6 +54,19 @@ class CodexConfigTests(unittest.TestCase):
         output = stdout.getvalue()
         self.assertIn("将安装以下 Codex hook 配置", output)
         self.assertIn("是否写入此配置", output)
+
+    def test_has_managed_hook_config_detects_managed_block(self) -> None:
+        path = Path("test-managed-config.toml")
+        try:
+            path.write_text(hook_config_block("cmd"), encoding="utf-8")
+
+            self.assertTrue(has_managed_hook_config(path))
+        finally:
+            if path.exists():
+                path.unlink()
+
+    def test_has_managed_hook_config_returns_false_for_missing_file(self) -> None:
+        self.assertFalse(has_managed_hook_config(Path("does-not-exist.toml")))
 
 
 if __name__ == "__main__":

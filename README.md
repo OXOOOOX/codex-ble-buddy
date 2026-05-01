@@ -4,6 +4,12 @@ Cross-platform BLE bridge for OpenAI Codex CLI approvals and M5StickS3 Buddy har
 
 This project connects Codex CLI `PermissionRequest` hooks to a BLE device that exposes a Nordic UART Service style interface. The first MVP targets Windows with Python and `bleak`.
 
+## Support Status
+
+- Codex CLI: supported through the official `PermissionRequest` hook path.
+- Codex App/Desktop: not supported by this MVP because Codex App approval prompts do not currently run the CLI hook configured in `~/.codex/config.toml`.
+- Windows UI automation for Codex App approvals is intentionally out of scope for the MVP.
+
 ## MVP Scope
 
 - Scan for BLE devices named `Codex-*`, `CodeBuddy*`, or `Buddy*`.
@@ -104,6 +110,8 @@ Doctor check:
 ```powershell
 codex-ble-buddy doctor
 ```
+
+`doctor` also reports whether the Codex CLI hook managed by this project is configured in your default Codex config file.
 
 ## Codex Hook Configuration
 

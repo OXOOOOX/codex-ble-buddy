@@ -108,6 +108,17 @@ def upsert_hook_block(existing: str, block: str) -> str:
     return block
 
 
+def has_managed_hook_config(config_path: Path | None = None) -> bool:
+    """Return whether the managed Codex hook block is present."""
+
+    path = config_path or default_codex_config_path()
+    try:
+        contents = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return BEGIN_MARKER in contents and END_MARKER in contents
+
+
 def prompt_config_path(default_path: Path, stdin: TextIO, stdout: TextIO, language: str = "en") -> Path | None:
     messages = MESSAGES[normalize_language(language)]
     stdout.write(messages["config_path_prompt"].format(default_path=default_path))

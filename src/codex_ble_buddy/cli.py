@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .ble import BleBuddyClient, scan_buddies
 from .ble import INSTALL_HELP
-from .codex_config import setup_codex_config
+from .codex_config import default_codex_config_path, has_managed_hook_config, setup_codex_config
 from .config import BleBuddyConfig
 from .hook import run_hook
 from .logging_utils import configure_logging
@@ -96,6 +96,12 @@ def _doctor() -> int:
         print(INSTALL_HELP)
         return 1
     print("Nordic UART Service UUIDs are configured.")
+    codex_config_path = default_codex_config_path()
+    if has_managed_hook_config(codex_config_path):
+        print(f"Codex CLI hook: configured in {codex_config_path}")
+    else:
+        print(f"Codex CLI hook: not configured in {codex_config_path}")
+        print("Run `codex-ble-buddy setup-codex` to configure it.")
     print("Run `codex-ble-buddy scan` with Bluetooth enabled to verify device discovery.")
     return 0
 
