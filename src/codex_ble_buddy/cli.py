@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .ble import BleBuddyClient, scan_buddies
 from .ble import INSTALL_HELP
+from .claude_config import default_claude_settings_path, has_managed_claude_hook_settings, setup_claude_settings
 from .codex_config import default_codex_config_path, has_managed_hook_config, setup_codex_config
 from .config import BleBuddyConfig
 from .hook import run_hook
@@ -33,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     send_test.add_argument("--timeout", type=float, default=30.0, help="Decision timeout in seconds")
     send_test.add_argument("--scan-timeout", type=float, default=8.0, help="Scan timeout in seconds")
 
-    approve = subparsers.add_parser("approve-request", help="Run Codex PermissionRequest hook flow")
+    approve = subparsers.add_parser("approve-request", help="Run Codex or Claude Code PermissionRequest hook flow")
     approve.add_argument("--timeout", type=float, default=30.0, help="Decision timeout in seconds")
     approve.add_argument("--scan-timeout", type=float, default=8.0, help="Scan timeout in seconds")
 
@@ -42,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--timeout", type=float, default=30.0, help="Decision timeout in seconds")
     setup.add_argument("--yes", action="store_true", help="Write without interactive confirmation")
     setup.add_argument("--language", choices=("en", "zh"), default="en", help="Prompt language")
+
+    setup_claude = subparsers.add_parser("setup-claude", help="Configure the Claude Code PermissionRequest hook")
+    setup_claude.add_argument("--settings-path", type=Path, help="Path to Claude Code settings.json")
+    setup_claude.add_argument("--timeout", type=float, default=30.0, help="Decision timeout in seconds")
+    setup_claude.add_argument("--yes", action="store_true", help="Write without interactive confirmation")
+    setup_claude.add_argument("--language", choices=("en", "zh"), default="en", help="Prompt language")
 
     subparsers.add_parser("doctor", help="Print environment diagnostics")
 
@@ -102,6 +109,12 @@ def _doctor() -> int:
     else:
         print(f"Codex CLI hook: not configured in {codex_config_path}")
         print("Run `codex-ble-buddy setup-codex` to configure it.")
+    claude_settings_path = default_claude_settings_path()
+    if has_managed_claude_hook_settings(claude_settings_path):
+        print(f"Claude Code hook: configured in {claude_settings_path}")
+    else:
+        print(f"Claude Code hook: not configured in {claude_settings_path}")
+        print("Run `codex-ble-buddy setup-claude` to configure it.")
     print("Run `codex-ble-buddy scan` with Bluetooth enabled to verify device discovery.")
     return 0
 
@@ -122,6 +135,13 @@ def main(argv: list[str] | None = None) -> int:
         return setup_codex_config(
             timeout=args.timeout,
             config_path=args.config_path,
+            assume_yes=args.yes,
+            language=args.language,
+        )
+    if args.command == "setup-claude":
+        return setup_claude_settings(
+            timeout=args.timeout,
+            settings_path=args.settings_path,
             assume_yes=args.yes,
             language=args.language,
         )

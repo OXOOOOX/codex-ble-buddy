@@ -80,8 +80,17 @@ def hook_config_block(command: str) -> str:
     return "\n".join(
         [
             BEGIN_MARKER,
+            "[features]",
+            "codex_hooks = true",
+            "",
             "[[hooks.PermissionRequest]]",
+            'matcher = ".*"',
+            "",
+            "[[hooks.PermissionRequest.hooks]]",
+            'type = "command"',
             f"command = {toml_string(command)}",
+            "timeout = 30",
+            'statusMessage = "Checking approval request"',
             END_MARKER,
             "",
         ]

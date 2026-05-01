@@ -19,8 +19,14 @@ class CodexConfigTests(unittest.TestCase):
     def test_hook_config_block_contains_permission_request(self) -> None:
         block = hook_config_block("python -m codex_ble_buddy.cli approve-request --timeout 30")
 
+        self.assertIn("[features]", block)
+        self.assertIn("codex_hooks = true", block)
         self.assertIn("[[hooks.PermissionRequest]]", block)
+        self.assertIn('matcher = ".*"', block)
+        self.assertIn("[[hooks.PermissionRequest.hooks]]", block)
+        self.assertIn('type = "command"', block)
         self.assertIn("command =", block)
+        self.assertIn("timeout = 30", block)
         self.assertIn("BEGIN codex-ble-buddy", block)
 
     def test_upsert_hook_block_appends_when_missing(self) -> None:

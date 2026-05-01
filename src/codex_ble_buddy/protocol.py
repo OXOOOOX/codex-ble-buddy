@@ -71,11 +71,27 @@ def prompt_from_codex_hook(payload: dict[str, Any]) -> PermissionPrompt:
     )
     command = (
         _first_string(payload, ("command", "cmd", "summary"))
-        or _extract_nested_string(payload, (("input", "command"), ("arguments", "command")))
+        or _extract_nested_string(
+            payload,
+            (
+                ("tool_input", "command"),
+                ("tool_input", "description"),
+                ("tool_input", "file_path"),
+                ("input", "command"),
+                ("arguments", "command"),
+            ),
+        )
     )
     reason = (
         _first_string(payload, ("reason", "message", "description"))
-        or _extract_nested_string(payload, (("permission", "reason"), ("input", "reason")))
+        or _extract_nested_string(
+            payload,
+            (
+                ("permission", "reason"),
+                ("input", "reason"),
+                ("tool_input", "description"),
+            ),
+        )
     )
 
     if not command:

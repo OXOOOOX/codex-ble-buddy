@@ -1,14 +1,15 @@
 # codex-ble-buddy
 
-Cross-platform BLE bridge for OpenAI Codex CLI approvals and M5StickS3 Buddy hardware.
+Cross-platform BLE bridge for OpenAI Codex approvals and M5StickS3 Buddy hardware.
 
-This project connects Codex CLI `PermissionRequest` hooks to a BLE device that exposes a Nordic UART Service style interface. The first MVP targets Windows with Python and `bleak`.
+This project connects Codex `PermissionRequest` hooks to a BLE device that exposes a Nordic UART Service style interface. The first MVP targets Windows with Python and `bleak`.
 
 ## Support Status
 
 - Codex CLI: supported through the official `PermissionRequest` hook path.
-- Codex App/Desktop: not supported by this MVP because Codex App approval prompts do not currently run the CLI hook configured in `~/.codex/config.toml`.
-- Windows UI automation for Codex App approvals is intentionally out of scope for the MVP.
+- Codex App/Desktop: supported through the same `~/.codex/config.toml` hook configuration used by Codex CLI.
+- The installed matcher is `.*`, so every Codex request that produces a `PermissionRequest` is forwarded to Buddy for approval.
+- Windows UI automation for non-hook approval dialogs is intentionally out of scope for the MVP.
 
 ## MVP Scope
 
@@ -17,7 +18,7 @@ This project connects Codex CLI `PermissionRequest` hooks to a BLE device that e
 - Send approval request JSON to the device.
 - Wait for an explicit `allow` or `deny` response.
 - Provide a Codex hook that never defaults to allow.
-- Keep the first version CLI-only.
+- Keep the first version focused on Codex hook approvals.
 
 ## Requirements
 
@@ -111,7 +112,7 @@ Doctor check:
 codex-ble-buddy doctor
 ```
 
-`doctor` also reports whether the Codex CLI hook managed by this project is configured in your default Codex config file.
+`doctor` also reports whether the Codex hook managed by this project is configured in your default Codex config file.
 
 ## Codex Hook Configuration
 
@@ -135,7 +136,15 @@ Example `~/.codex/hooks.json`:
   "hooks": {
     "PermissionRequest": [
       {
-        "command": "python C:\\Users\\23479\\Documents\\GitHub\\codex-ble-buddy\\scripts\\codex_permission_hook.py --timeout 30"
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python C:\\Users\\23479\\Documents\\GitHub\\codex-ble-buddy\\scripts\\codex_permission_hook.py --timeout 30",
+            "timeout": 30,
+            "statusMessage": "Checking approval request"
+          }
+        ]
       }
     ]
   }
@@ -145,8 +154,17 @@ Example `~/.codex/hooks.json`:
 Example `~/.codex/config.toml`:
 
 ```toml
+[features]
+codex_hooks = true
+
 [[hooks.PermissionRequest]]
+matcher = ".*"
+
+[[hooks.PermissionRequest.hooks]]
+type = "command"
 command = "python C:\\Users\\23479\\Documents\\GitHub\\codex-ble-buddy\\scripts\\codex_permission_hook.py --timeout 30"
+timeout = 30
+statusMessage = "Checking approval request"
 ```
 
 ## BLE Protocol
