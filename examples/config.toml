@@ -1,3 +1,5 @@
+approval_policy = "untrusted"
+
 [features]
 codex_hooks = true
 

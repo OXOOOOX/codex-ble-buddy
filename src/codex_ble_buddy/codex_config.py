@@ -11,6 +11,7 @@ from typing import TextIO
 
 BEGIN_MARKER = "# BEGIN codex-ble-buddy PermissionRequest hook"
 END_MARKER = "# END codex-ble-buddy PermissionRequest hook"
+APPROVAL_POLICY_LINE = 'approval_policy = "untrusted"'
 SUPPORTED_LANGUAGES = ("en", "zh")
 CANCEL_ANSWERS = {"q", "quit", "cancel"}
 YES_ANSWERS = {"y", "yes"}
@@ -117,6 +118,29 @@ def upsert_hook_block(existing: str, block: str) -> str:
     return block
 
 
+def upsert_approval_policy(existing: str) -> str:
+    """Set Codex to auto-run trusted commands and ask for approval otherwise."""
+
+    lines = existing.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().startswith("approval_policy"):
+            lines[index] = APPROVAL_POLICY_LINE
+            trailing_newline = "\n" if existing.endswith(("\n", "\r\n")) else ""
+            return "\n".join(lines) + trailing_newline
+
+    insert_at = 0
+    while insert_at < len(lines):
+        stripped = lines[insert_at].strip()
+        if stripped.startswith("["):
+            break
+        insert_at += 1
+    lines.insert(insert_at, APPROVAL_POLICY_LINE)
+    if insert_at < len(lines) - 1 and lines[insert_at + 1].strip():
+        lines.insert(insert_at + 1, "")
+    trailing_newline = "\n" if existing.endswith(("\n", "\r\n")) else ""
+    return "\n".join(lines) + trailing_newline
+
+
 def has_managed_hook_config(config_path: Path | None = None) -> bool:
     """Return whether the managed Codex hook block is present."""
 
@@ -187,7 +211,7 @@ def setup_codex_config(
 
     try:
         existing = selected_path.read_text(encoding="utf-8") if selected_path.exists() else ""
-        updated = upsert_hook_block(existing, block)
+        updated = upsert_hook_block(upsert_approval_policy(existing), block)
         selected_path.parent.mkdir(parents=True, exist_ok=True)
         selected_path.write_text(updated, encoding="utf-8")
     except OSError as exc:

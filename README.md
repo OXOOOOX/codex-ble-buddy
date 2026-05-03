@@ -8,6 +8,7 @@ This project connects Codex `PermissionRequest` hooks to a BLE device that expos
 
 - Codex CLI: supported through the official `PermissionRequest` hook path.
 - Codex App/Desktop: supported through the same `~/.codex/config.toml` hook configuration used by Codex CLI.
+- The setup command sets `approval_policy = "untrusted"` so trusted commands can run automatically while untrusted requests are sent through the Buddy approval hook.
 - The installed matcher is `.*`, so every Codex request that produces a `PermissionRequest` is forwarded to Buddy for approval.
 - Windows UI automation for non-hook approval dialogs is intentionally out of scope for the MVP.
 
@@ -59,7 +60,7 @@ For Chinese prompts, run:
 codex-ble-buddy setup-codex --language zh
 ```
 
-The setup command shows the system default Codex config path, lets you accept it or type a custom `config.toml` path, then asks for confirmation before writing. It adds a managed `PermissionRequest` hook block and can update that block later without replacing the rest of your Codex config.
+The setup command shows the system default Codex config path, lets you accept it or type a custom `config.toml` path, then asks for confirmation before writing. It sets `approval_policy = "untrusted"` and adds a managed `PermissionRequest` hook block. Later runs can update that managed block without replacing the rest of your Codex config.
 
 If you do not want an editable install:
 
@@ -154,6 +155,8 @@ Example `~/.codex/hooks.json`:
 Example `~/.codex/config.toml`:
 
 ```toml
+approval_policy = "untrusted"
+
 [features]
 codex_hooks = true
 

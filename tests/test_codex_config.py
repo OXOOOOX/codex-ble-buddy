@@ -8,6 +8,7 @@ from codex_ble_buddy.codex_config import (
     hook_config_block,
     prompt_config_path,
     toml_string,
+    upsert_approval_policy,
     upsert_hook_block,
 )
 
@@ -42,6 +43,17 @@ class CodexConfigTests(unittest.TestCase):
         self.assertIn("new", new)
         self.assertNotIn("old", new)
         self.assertEqual(new.count("[[hooks.PermissionRequest]]"), 1)
+
+    def test_upsert_approval_policy_replaces_existing_policy(self) -> None:
+        updated = upsert_approval_policy('model = "x"\napproval_policy = "on-request"\n')
+
+        self.assertIn('approval_policy = "untrusted"', updated)
+        self.assertNotIn('approval_policy = "on-request"', updated)
+
+    def test_upsert_approval_policy_inserts_before_first_table(self) -> None:
+        updated = upsert_approval_policy('model = "x"\n\n[features]\ncodex_hooks = true\n')
+
+        self.assertLess(updated.index('approval_policy = "untrusted"'), updated.index("[features]"))
 
     def test_prompt_config_path_supports_chinese(self) -> None:
         stdout = io.StringIO()
