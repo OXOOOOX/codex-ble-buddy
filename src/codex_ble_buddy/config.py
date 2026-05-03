@@ -9,6 +9,8 @@ NUS_RX_CHAR_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 NUS_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 DEFAULT_NAME_PREFIXES = ("Codex-", "CodeBuddy", "Buddy")
+DEFAULT_SERVICE_HOST = "127.0.0.1"
+DEFAULT_SERVICE_PORT = 8765
 
 
 @dataclass(frozen=True)
@@ -21,3 +23,5 @@ class BleBuddyConfig:
     decision_timeout: float = 30.0
     write_timeout: float = 5.0
     connect_retries: int = 2
+    keepalive_interval: float = 10.0
+    connect_settle_delay: float = 0.5

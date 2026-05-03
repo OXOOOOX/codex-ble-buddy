@@ -62,6 +62,12 @@ codex-ble-buddy setup-codex --language zh
 
 The setup command shows the system default Codex config path, lets you accept it or type a custom `config.toml` path, then asks for confirmation before writing. It sets `approval_policy = "untrusted"` and adds a managed `PermissionRequest` hook block. Later runs can update that managed block without replacing the rest of your Codex config.
 
+For faster and more reliable approvals, start the persistent BLE service before opening Codex or Claude Code:
+
+```powershell
+codex-ble-buddy serve
+```
+
 If you do not want an editable install:
 
 ```powershell
@@ -101,6 +107,20 @@ Send a test approval prompt:
 codex-ble-buddy send-test --timeout 30
 ```
 
+Keep a persistent BLE connection warm:
+
+```powershell
+codex-ble-buddy serve
+```
+
+With the service running, hook requests use the local service first and reuse the persistent BLE connection. If the service is not available, the hook falls back to the one-shot scan/connect flow.
+
+Send a test approval prompt through the local service:
+
+```powershell
+codex-ble-buddy send-test --service --timeout 30
+```
+
 Run the Codex hook flow manually with sample input:
 
 ```powershell
@@ -114,6 +134,7 @@ codex-ble-buddy doctor
 ```
 
 `doctor` also reports whether the Codex hook managed by this project is configured in your default Codex config file.
+It also reports whether the local persistent service is online at `http://127.0.0.1:8765`.
 
 ## Codex Hook Configuration
 
@@ -217,6 +238,8 @@ Messages are UTF-8 JSON with a newline terminator. The bridge maps CodeBuddy `de
 
 The hook never approves by default.
 
+- Local service unavailable: falls back to one-shot BLE.
+- Local service busy: returns no decision.
 - BLE unavailable: returns no decision.
 - Scan timeout: returns no decision.
 - Connection failure: returns no decision.

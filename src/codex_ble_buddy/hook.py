@@ -16,11 +16,23 @@ from .protocol import (
     codex_no_decision_output,
     prompt_from_codex_hook,
 )
+from .service import call_permission_service, service_request_timeout
 
 logger = logging.getLogger(__name__)
 
 
-async def run_permission_request(payload: dict[str, Any], config: BleBuddyConfig) -> dict[str, Any]:
+async def run_permission_request(
+    payload: dict[str, Any],
+    config: BleBuddyConfig,
+    use_service: bool = True,
+) -> dict[str, Any]:
+    if use_service:
+        output = call_permission_service(payload, timeout=service_request_timeout(config))
+        if output is not None:
+            logger.info("Permission request handled by local BLE Buddy service")
+            return output
+        logger.info("Local BLE Buddy service unavailable; falling back to one-shot BLE request")
+
     prompt = prompt_from_codex_hook(payload)
     client = BleBuddyClient(config)
     decision = await client.request_decision(prompt)
@@ -61,14 +73,19 @@ def write_hook_output(output: dict[str, Any], stdout: TextIO = sys.stdout) -> No
     stdout.flush()
 
 
-def run_hook(config: BleBuddyConfig, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> int:
+def run_hook(
+    config: BleBuddyConfig,
+    stdin: TextIO = sys.stdin,
+    stdout: TextIO = sys.stdout,
+    use_service: bool = True,
+) -> int:
     payload = read_stdin_json(stdin)
     if not payload:
         write_hook_output(codex_no_decision_output(), stdout)
         return 0
 
     try:
-        output = asyncio.run(run_permission_request(payload, config))
+        output = asyncio.run(run_permission_request(payload, config, use_service=use_service))
     except RuntimeError as exc:
         logger.error("Hook failed safely: %s", exc)
         output = codex_no_decision_output()

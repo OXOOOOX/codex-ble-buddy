@@ -8,6 +8,7 @@ from codex_ble_buddy.protocol import (
     codex_deny_output,
     codex_no_decision_output,
     decode_decision,
+    encode_idle_snapshot,
     encode_permission_prompt,
     prompt_from_codex_hook,
 )
@@ -32,6 +33,17 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(payload["prompt"]["id"], "abc")
         self.assertEqual(payload["prompt"]["tool"], "shell")
         self.assertEqual(payload["prompt"]["hint"], "dir")
+
+    def test_encode_idle_snapshot_adds_link_keepalive_payload(self) -> None:
+        encoded = encode_idle_snapshot()
+
+        self.assertTrue(encoded.endswith(b"\n"))
+        payload = json.loads(encoded.decode("utf-8"))
+        self.assertEqual(payload["total"], 0)
+        self.assertEqual(payload["running"], 0)
+        self.assertEqual(payload["waiting"], 0)
+        self.assertEqual(payload["entries"], [])
+        self.assertNotIn("prompt", payload)
 
     def test_decode_legacy_allow_decision(self) -> None:
         decision = decode_decision('{"type":"decision","id":"abc","decision":"allow"}', "abc")

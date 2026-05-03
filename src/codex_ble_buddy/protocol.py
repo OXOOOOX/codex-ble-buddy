@@ -142,6 +142,21 @@ def encode_permission_prompt(prompt: PermissionPrompt) -> bytes:
     return (json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
 
 
+def encode_idle_snapshot(message: str = "No active Codex turn") -> bytes:
+    """Encode an idle heartbeat snapshot that keeps the Buddy link active."""
+
+    payload = {
+        "total": 0,
+        "running": 0,
+        "waiting": 0,
+        "msg": truncate(message, 80),
+        "entries": [],
+        "tokens": 0,
+        "tokens_today": 0,
+    }
+    return (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+
+
 def decode_decision(data: bytes | str, expected_request_id: str | None = None) -> Decision:
     if isinstance(data, bytes):
         text = data.decode("utf-8", errors="strict").strip()
