@@ -55,7 +55,7 @@ def default_codex_config_path() -> Path:
     return Path.home() / ".codex" / "config.toml"
 
 
-def build_hook_command(timeout: float) -> str:
+def build_hook_command(timeout: float, auto_start_service: bool = False) -> str:
     """Build a shell command that uses the current Python environment."""
 
     args = [
@@ -66,6 +66,8 @@ def build_hook_command(timeout: float) -> str:
         "--timeout",
         str(int(timeout) if timeout.is_integer() else timeout),
     ]
+    if auto_start_service:
+        args.append("--auto-start-service")
     if os.name == "nt":
         return subprocess.list2cmdline(args)
     return shlex.join(str(arg) for arg in args)
@@ -189,6 +191,7 @@ def setup_codex_config(
     config_path: Path | None = None,
     assume_yes: bool = False,
     language: str = "en",
+    auto_start_service: bool = False,
     stdin: TextIO = sys.stdin,
     stdout: TextIO = sys.stdout,
 ) -> int:
@@ -203,7 +206,7 @@ def setup_codex_config(
             stdout.write(messages["cancelled"])
             return 1
 
-    command = build_hook_command(timeout)
+    command = build_hook_command(timeout, auto_start_service=auto_start_service)
     block = hook_config_block(command)
     if not confirm_write(selected_path, block, stdin, stdout, assume_yes, language):
         stdout.write(messages["cancelled"])

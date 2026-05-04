@@ -10,6 +10,8 @@ from typing import Any, TextIO
 from .codex_config import build_hook_command, normalize_language
 
 MANAGED_COMMAND_MARKERS = (
+    "codex-ble-buddy approve-request",
+    "codex-ble-buddy.exe approve-request",
     "codex_ble_buddy.cli approve-request",
     "codex_permission_hook.py",
 )
@@ -170,6 +172,7 @@ def setup_claude_settings(
     settings_path: Path | None = None,
     assume_yes: bool = False,
     language: str = "en",
+    auto_start_service: bool = False,
     stdin: TextIO = None,
     stdout: TextIO = None,
 ) -> int:
@@ -197,7 +200,7 @@ def setup_claude_settings(
         stdout.write(messages["read_failed"].format(error="settings root must be a JSON object"))
         return 1
 
-    command = build_hook_command(timeout)
+    command = build_hook_command(timeout, auto_start_service=auto_start_service)
     updated = upsert_claude_hook_settings(existing, command, timeout)
     if not confirm_write(selected_path, updated, stdin, stdout, assume_yes, language):
         stdout.write(messages["cancelled"])

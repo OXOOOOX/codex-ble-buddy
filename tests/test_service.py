@@ -11,6 +11,11 @@ from codex_ble_buddy.service import (
     PermissionRequestHandler,
     PersistentBleBuddyManager,
     call_permission_service,
+    install_service_task,
+    service_command,
+    service_status,
+    write_service_task_launcher,
+    write_service_task_script,
 )
 
 
@@ -129,6 +134,7 @@ class ServiceClientTests(unittest.TestCase):
     def test_call_permission_service_returns_hook_output(self) -> None:
         server = ThreadingHTTPServer(("127.0.0.1", 0), PermissionRequestHandler)
         server.decision_handler = lambda _: codex_allow_output()
+        server.status_handler = lambda: {"ok": True, "ble_connected": False}
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -142,6 +148,68 @@ class ServiceClientTests(unittest.TestCase):
 
     def test_call_permission_service_returns_none_when_offline(self) -> None:
         self.assertIsNone(call_permission_service({"id": "req"}, port=9, timeout=0.01))
+
+    def test_service_status_reports_ble_connection(self) -> None:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), PermissionRequestHandler)
+        server.decision_handler = lambda _: codex_allow_output()
+        server.status_handler = lambda: {"ok": True, "ble_connected": True}
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = service_status(port=server.server_port)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        self.assertEqual(result, {"ok": True, "ble_connected": True})
+
+    def test_service_command_builds_serve_command(self) -> None:
+        command = service_command(decision_timeout=30.0)
+
+        self.assertIn("codex_ble_buddy.cli", command)
+        self.assertIn("serve", command)
+        self.assertIn("--timeout", command)
+
+    def test_service_task_script_redirects_logs(self) -> None:
+        script_path = write_service_task_script(decision_timeout=30.0)
+
+        content = script_path.read_text(encoding="ascii")
+        self.assertIn("codex_ble_buddy.cli", content)
+        self.assertIn("service.log", content)
+        self.assertIn("2>&1", content)
+
+    def test_install_service_task_uses_cmd_wrapper(self) -> None:
+        with patch("codex_ble_buddy.service.write_service_task_script") as write_script:
+            with patch("codex_ble_buddy.service.write_service_task_launcher") as write_launcher:
+                with patch("codex_ble_buddy.service.subprocess.run") as run:
+                    write_script.return_value = r"C:\repo\.tmp\codex-ble-buddy-service.cmd"
+                    write_launcher.return_value = r"C:\repo\.tmp\codex-ble-buddy-service.vbs"
+                    run.return_value.returncode = 0
+
+                    self.assertTrue(install_service_task())
+
+        args = run.call_args.args[0]
+        self.assertEqual(args[0], "schtasks")
+        self.assertIn('wscript.exe //B //Nologo "C:\\repo\\.tmp\\codex-ble-buddy-service.vbs"', args)
+
+    def test_service_task_launcher_hides_cmd_window(self) -> None:
+        launcher_path = write_service_task_launcher(r"C:\repo\.tmp\codex-ble-buddy-service.cmd")
+
+        content = launcher_path.read_text(encoding="ascii")
+        self.assertIn("WScript.Shell", content)
+        self.assertIn("cmd.exe /c", content)
+        self.assertIn(", 0, False", content)
+
+    def test_install_service_task_writes_launcher_for_script(self) -> None:
+        with patch("codex_ble_buddy.service.write_service_task_script") as write_script:
+            with patch("codex_ble_buddy.service.subprocess.run") as run:
+                write_script.return_value = r"C:\repo\.tmp\codex-ble-buddy-service.cmd"
+                run.return_value.returncode = 0
+
+                self.assertTrue(install_service_task())
+
+        write_script.assert_called_once()
 
 
 class HookServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -162,6 +230,37 @@ class HookServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(output, {})
         client_type.return_value.request_decision.assert_awaited_once()
+
+    async def test_hook_auto_starts_service_when_enabled(self) -> None:
+        with patch("codex_ble_buddy.hook.service_is_available", return_value=False):
+            with patch("codex_ble_buddy.hook.task_is_installed", return_value=False):
+                with patch("codex_ble_buddy.hook.start_service_background") as start:
+                    with patch("codex_ble_buddy.hook.wait_for_service", return_value=True) as wait:
+                        with patch("codex_ble_buddy.hook.call_permission_service", return_value=codex_allow_output()):
+                            output = await run_permission_request(
+                                {"id": "req", "tool": "shell", "command": "dir"},
+                                BleBuddyConfig(),
+                                auto_start_service=True,
+                            )
+
+        self.assertEqual(output, codex_allow_output())
+        start.assert_called_once()
+        wait.assert_called_once()
+
+    async def test_hook_auto_starts_installed_task_when_enabled(self) -> None:
+        with patch("codex_ble_buddy.hook.service_is_available", return_value=False):
+            with patch("codex_ble_buddy.hook.task_is_installed", return_value=True):
+                with patch("codex_ble_buddy.hook.start_service_task") as start:
+                    with patch("codex_ble_buddy.hook.wait_for_service", return_value=True):
+                        with patch("codex_ble_buddy.hook.call_permission_service", return_value=codex_allow_output()):
+                            output = await run_permission_request(
+                                {"id": "req", "tool": "shell", "command": "dir"},
+                                BleBuddyConfig(),
+                                auto_start_service=True,
+                            )
+
+        self.assertEqual(output, codex_allow_output())
+        start.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -8,6 +8,6 @@ matcher = ".*"
 
 [[hooks.PermissionRequest.hooks]]
 type = "command"
-command = "python C:\\Users\\23479\\Documents\\GitHub\\codex-ble-buddy\\scripts\\codex_permission_hook.py --timeout 30"
+command = "python -m codex_ble_buddy.cli approve-request --timeout 30 --auto-start-service"
 timeout = 30
 statusMessage = "Checking approval request"

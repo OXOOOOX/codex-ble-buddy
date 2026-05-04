@@ -3,8 +3,10 @@ import unittest
 from pathlib import Path
 
 from codex_ble_buddy.codex_config import (
-    has_managed_hook_config,
+    build_hook_command,
     confirm_write,
+    default_codex_config_path,
+    has_managed_hook_config,
     hook_config_block,
     prompt_config_path,
     toml_string,
@@ -29,6 +31,12 @@ class CodexConfigTests(unittest.TestCase):
         self.assertIn("command =", block)
         self.assertIn("timeout = 30", block)
         self.assertIn("BEGIN codex-ble-buddy", block)
+
+    def test_build_hook_command_supports_auto_start_service(self) -> None:
+        command = build_hook_command(30.0, auto_start_service=True)
+
+        self.assertIn("approve-request", command)
+        self.assertIn("--auto-start-service", command)
 
     def test_upsert_hook_block_appends_when_missing(self) -> None:
         updated = upsert_hook_block("model = \"x\"\n", hook_config_block("cmd"))
@@ -62,6 +70,9 @@ class CodexConfigTests(unittest.TestCase):
 
         self.assertEqual(result, Path(r"C:\Users\me\.codex\config.toml"))
         self.assertIn("Codex 配置文件路径", stdout.getvalue())
+
+    def test_default_codex_config_path_uses_current_home(self) -> None:
+        self.assertEqual(default_codex_config_path(), Path.home() / ".codex" / "config.toml")
 
     def test_confirm_write_supports_chinese(self) -> None:
         stdout = io.StringIO()

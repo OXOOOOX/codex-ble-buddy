@@ -16,7 +16,15 @@ from .protocol import (
     codex_no_decision_output,
     prompt_from_codex_hook,
 )
-from .service import call_permission_service, service_request_timeout
+from .service import (
+    call_permission_service,
+    service_is_available,
+    service_request_timeout,
+    start_service_background,
+    start_service_task,
+    task_is_installed,
+    wait_for_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +33,22 @@ async def run_permission_request(
     payload: dict[str, Any],
     config: BleBuddyConfig,
     use_service: bool = True,
+    auto_start_service: bool = False,
+    service_start_timeout: float = 10.0,
 ) -> dict[str, Any]:
     if use_service:
+        if auto_start_service and not service_is_available():
+            try:
+                if task_is_installed():
+                    start_service_task()
+                else:
+                    start_service_background(
+                        scan_timeout=config.scan_timeout,
+                        decision_timeout=config.decision_timeout,
+                    )
+                wait_for_service(timeout=service_start_timeout)
+            except Exception:
+                logger.exception("Failed to auto-start local BLE Buddy service")
         output = call_permission_service(payload, timeout=service_request_timeout(config))
         if output is not None:
             logger.info("Permission request handled by local BLE Buddy service")
@@ -78,6 +100,8 @@ def run_hook(
     stdin: TextIO = sys.stdin,
     stdout: TextIO = sys.stdout,
     use_service: bool = True,
+    auto_start_service: bool = False,
+    service_start_timeout: float = 10.0,
 ) -> int:
     payload = read_stdin_json(stdin)
     if not payload:
@@ -85,7 +109,15 @@ def run_hook(
         return 0
 
     try:
-        output = asyncio.run(run_permission_request(payload, config, use_service=use_service))
+        output = asyncio.run(
+            run_permission_request(
+                payload,
+                config,
+                use_service=use_service,
+                auto_start_service=auto_start_service,
+                service_start_timeout=service_start_timeout,
+            )
+        )
     except RuntimeError as exc:
         logger.error("Hook failed safely: %s", exc)
         output = codex_no_decision_output()

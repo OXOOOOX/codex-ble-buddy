@@ -17,7 +17,8 @@ from .config import DEFAULT_SERVICE_HOST, DEFAULT_SERVICE_PORT, BleBuddyConfig
 from .hook import run_hook
 from .logging_utils import configure_logging
 from .protocol import PermissionPrompt, make_request_id
-from .service import call_permission_service, run_service, service_is_available, service_request_timeout
+from .service import call_permission_service, run_service, service_is_available, service_request_timeout, service_status
+from .service import install_service_task, start_service_task, task_is_installed, uninstall_service_task
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--timeout", type=float, default=30.0, help="Decision timeout in seconds")
     approve.add_argument("--scan-timeout", type=float, default=8.0, help="Scan timeout in seconds")
     approve.add_argument("--no-service", action="store_true", help="Skip the local service and use one-shot BLE")
+    approve.add_argument("--auto-start-service", action="store_true", help="Start the local service if it is offline")
+    approve.add_argument("--service-start-timeout", type=float, default=10.0, help="Seconds to wait for auto-started service")
 
     serve = subparsers.add_parser("serve", help="Run a persistent local BLE Buddy approval service")
     serve.add_argument("--host", default=DEFAULT_SERVICE_HOST, help="Service bind host")
@@ -47,17 +50,28 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--scan-timeout", type=float, default=8.0, help="BLE scan timeout in seconds")
     serve.add_argument("--timeout", type=float, default=30.0, help="Decision timeout in seconds")
 
+    install_task = subparsers.add_parser("install-service-task", help="Install a Windows scheduled task for the service")
+    install_task.add_argument("--host", default=DEFAULT_SERVICE_HOST, help="Service bind host")
+    install_task.add_argument("--port", type=int, default=DEFAULT_SERVICE_PORT, help="Service bind port")
+    install_task.add_argument("--scan-timeout", type=float, default=8.0, help="BLE scan timeout in seconds")
+    install_task.add_argument("--timeout", type=float, default=30.0, help="Decision timeout in seconds")
+
+    subparsers.add_parser("uninstall-service-task", help="Remove the Windows scheduled service task")
+    subparsers.add_parser("start-service-task", help="Start the Windows scheduled service task")
+
     setup = subparsers.add_parser("setup-codex", help="Configure the Codex PermissionRequest hook")
     setup.add_argument("--config-path", type=Path, help="Path to Codex config.toml")
     setup.add_argument("--timeout", type=float, default=30.0, help="Decision timeout in seconds")
     setup.add_argument("--yes", action="store_true", help="Write without interactive confirmation")
     setup.add_argument("--language", choices=("en", "zh"), default="en", help="Prompt language")
+    setup.add_argument("--auto-start-service", action="store_true", help="Configure the hook to auto-start the service")
 
     setup_claude = subparsers.add_parser("setup-claude", help="Configure the Claude Code PermissionRequest hook")
     setup_claude.add_argument("--settings-path", type=Path, help="Path to Claude Code settings.json")
     setup_claude.add_argument("--timeout", type=float, default=30.0, help="Decision timeout in seconds")
     setup_claude.add_argument("--yes", action="store_true", help="Write without interactive confirmation")
     setup_claude.add_argument("--language", choices=("en", "zh"), default="en", help="Prompt language")
+    setup_claude.add_argument("--auto-start-service", action="store_true", help="Configure the hook to auto-start the service")
 
     subparsers.add_parser("doctor", help="Print environment diagnostics")
 
@@ -142,11 +156,17 @@ def _doctor() -> int:
     else:
         print(f"Claude Code hook: not configured in {claude_settings_path}")
         print("Run `codex-ble-buddy setup-claude` to configure it.")
-    if service_is_available():
-        print(f"Local BLE Buddy service: online at http://{DEFAULT_SERVICE_HOST}:{DEFAULT_SERVICE_PORT}")
+    status = service_status()
+    if status is not None and status.get("ok") is True:
+        ble_state = "connected" if status.get("ble_connected") else "disconnected"
+        print(f"Local BLE Buddy service: online at http://{DEFAULT_SERVICE_HOST}:{DEFAULT_SERVICE_PORT} ({ble_state})")
     else:
         print(f"Local BLE Buddy service: offline at http://{DEFAULT_SERVICE_HOST}:{DEFAULT_SERVICE_PORT}")
         print("Run `codex-ble-buddy serve` to keep a persistent BLE connection warm.")
+    if task_is_installed():
+        print("Local BLE Buddy service task: installed")
+    else:
+        print("Local BLE Buddy service task: not installed")
     print("Run `codex-ble-buddy scan` with Bluetooth enabled to verify device discovery.")
     return 0
 
@@ -162,24 +182,60 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_send_test(args))
     if args.command == "approve-request":
         config = BleBuddyConfig(scan_timeout=args.scan_timeout, decision_timeout=args.timeout)
-        return run_hook(config, use_service=not args.no_service)
+        return run_hook(
+            config,
+            use_service=not args.no_service,
+            auto_start_service=args.auto_start_service,
+            service_start_timeout=args.service_start_timeout,
+        )
     if args.command == "serve":
         config = BleBuddyConfig(scan_timeout=args.scan_timeout, decision_timeout=args.timeout)
         return run_service(config, host=args.host, port=args.port)
+    if args.command == "install-service-task":
+        install_service_task(
+            host=args.host,
+            port=args.port,
+            scan_timeout=args.scan_timeout,
+            decision_timeout=args.timeout,
+        )
+        print("Local BLE Buddy service task installed.")
+        return 0
+    if args.command == "uninstall-service-task":
+        if uninstall_service_task():
+            print("Local BLE Buddy service task removed.")
+        else:
+            print("Local BLE Buddy service task was not installed.")
+        return 0
+    if args.command == "start-service-task":
+        if start_service_task():
+            print("Local BLE Buddy service task started.")
+            return 0
+        print("Local BLE Buddy service task is not installed.")
+        return 1
     if args.command == "setup-codex":
-        return setup_codex_config(
+        result = setup_codex_config(
             timeout=args.timeout,
             config_path=args.config_path,
             assume_yes=args.yes,
             language=args.language,
+            auto_start_service=args.auto_start_service,
         )
+        if result == 0 and args.auto_start_service:
+            install_service_task(decision_timeout=args.timeout)
+            print("Local BLE Buddy service task installed.")
+        return result
     if args.command == "setup-claude":
-        return setup_claude_settings(
+        result = setup_claude_settings(
             timeout=args.timeout,
             settings_path=args.settings_path,
             assume_yes=args.yes,
             language=args.language,
+            auto_start_service=args.auto_start_service,
         )
+        if result == 0 and args.auto_start_service:
+            install_service_task(decision_timeout=args.timeout)
+            print("Local BLE Buddy service task installed.")
+        return result
     if args.command == "doctor":
         return _doctor()
 

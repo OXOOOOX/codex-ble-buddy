@@ -50,14 +50,29 @@ if errorlevel 1 (
 echo.
 echo Starting Codex hook configuration.
 echo Press Enter to accept the default Codex config path, or type a custom config.toml path.
+echo Auto-start service will be enabled for the Codex hook.
 echo.
-codex-ble-buddy setup-codex
+codex-ble-buddy setup-codex --auto-start-service
 if errorlevel 1 (
   echo.
   echo Codex hook configuration was cancelled or failed.
   echo.
   pause
   exit /b 1
+)
+
+echo.
+echo Starting Claude Code hook configuration.
+echo Press Enter to accept the default Claude Code settings path, or type a custom settings.json path.
+echo Auto-start service will be enabled for the Claude Code hook.
+echo Type q to skip Claude Code configuration.
+echo.
+codex-ble-buddy setup-claude --auto-start-service
+if errorlevel 1 (
+  echo.
+  echo Claude Code hook configuration was skipped or failed.
+  echo You can configure it later with:
+  echo   codex-ble-buddy setup-claude --auto-start-service
 )
 
 echo.
@@ -109,14 +124,29 @@ if errorlevel 1 (
 echo.
 echo 开始配置 Codex hook。
 echo 按 Enter 使用默认 Codex 配置文件路径，或输入自定义 config.toml 路径。
+echo 将为 Codex hook 启用后台服务自动启动。
 echo.
-codex-ble-buddy setup-codex --language zh
+codex-ble-buddy setup-codex --language zh --auto-start-service
 if errorlevel 1 (
   echo.
   echo Codex hook 配置已取消或失败。
   echo.
   pause
   exit /b 1
+)
+
+echo.
+echo 开始配置 Claude Code hook。
+echo 按 Enter 使用默认 Claude Code settings.json 路径，或输入自定义路径。
+echo 将为 Claude Code hook 启用后台服务自动启动。
+echo 输入 q 可跳过 Claude Code 配置。
+echo.
+codex-ble-buddy setup-claude --language zh --auto-start-service
+if errorlevel 1 (
+  echo.
+  echo Claude Code hook 配置已跳过或失败。
+  echo 稍后可以使用以下命令配置：
+  echo   codex-ble-buddy setup-claude --language zh --auto-start-service
 )
 
 echo.

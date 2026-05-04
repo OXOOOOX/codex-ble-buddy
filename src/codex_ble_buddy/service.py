@@ -5,17 +5,23 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import subprocess
+import sys
+import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Callable
 
 from .ble import _load_bleak, device_matches
 from .config import (
     DEFAULT_SERVICE_HOST,
     DEFAULT_SERVICE_PORT,
+    DEFAULT_TASK_NAME,
     BleBuddyConfig,
     NUS_RX_CHAR_UUID,
     NUS_TX_CHAR_UUID,
@@ -33,6 +39,11 @@ from .protocol import (
 logger = logging.getLogger(__name__)
 
 DecisionHandler = Callable[[dict[str, Any]], dict[str, Any]]
+StatusHandler = Callable[[], dict[str, Any]]
+
+
+def _powershell_string(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 class PersistentBleBuddyManager:
@@ -48,6 +59,11 @@ class PersistentBleBuddyManager:
         self._request_lock = asyncio.Lock()
         self._stop = asyncio.Event()
         self._keepalive_task: asyncio.Task[None] | None = None
+
+    @property
+    def is_connected(self) -> bool:
+        client = self._client
+        return self._connected.is_set() and client is not None and bool(getattr(client, "is_connected", False))
 
     async def run(self) -> None:
         while not self._stop.is_set():
@@ -112,6 +128,7 @@ class PersistentBleBuddyManager:
                     try:
                         data = await asyncio.wait_for(self._notifications.get(), timeout=remaining)
                     except asyncio.TimeoutError:
+                        logger.warning("Timed out waiting for BLE Buddy notification")
                         return None
                     try:
                         return decode_decision(data, expected_request_id=prompt.request_id)
@@ -239,6 +256,12 @@ class ServiceRuntime:
             return codex_deny_output()
         return codex_no_decision_output()
 
+    def status(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "ble_connected": self.manager.is_connected,
+        }
+
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
@@ -246,6 +269,7 @@ class ServiceRuntime:
 
 class PermissionHTTPServer(ThreadingHTTPServer):
     decision_handler: DecisionHandler
+    status_handler: StatusHandler
 
 
 class PermissionRequestHandler(BaseHTTPRequestHandler):
@@ -255,7 +279,7 @@ class PermissionRequestHandler(BaseHTTPRequestHandler):
         if self.path != "/health":
             self.send_error(404)
             return
-        self._write_json({"ok": True})
+        self._write_json(self.server.status_handler())
 
     def do_POST(self) -> None:
         if self.path != "/permission":
@@ -286,6 +310,147 @@ class PermissionRequestHandler(BaseHTTPRequestHandler):
 
 def service_url(host: str = DEFAULT_SERVICE_HOST, port: int = DEFAULT_SERVICE_PORT, path: str = "/permission") -> str:
     return f"http://{host}:{port}{path}"
+
+
+def service_command(
+    host: str = DEFAULT_SERVICE_HOST,
+    port: int = DEFAULT_SERVICE_PORT,
+    scan_timeout: float = 8.0,
+    decision_timeout: float = 30.0,
+) -> str:
+    args = [
+        sys.executable,
+        "-m",
+        "codex_ble_buddy.cli",
+        "serve",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--scan-timeout",
+        str(int(scan_timeout) if float(scan_timeout).is_integer() else scan_timeout),
+        "--timeout",
+        str(int(decision_timeout) if float(decision_timeout).is_integer() else decision_timeout),
+    ]
+    return subprocess.list2cmdline(args)
+
+
+def service_task_script_path() -> Path:
+    return Path(__file__).resolve().parents[2] / ".tmp" / "codex-ble-buddy-service.cmd"
+
+
+def service_task_launcher_path() -> Path:
+    return Path(__file__).resolve().parents[2] / ".tmp" / "codex-ble-buddy-service.vbs"
+
+
+def _vbscript_string(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def write_service_task_script(
+    host: str = DEFAULT_SERVICE_HOST,
+    port: int = DEFAULT_SERVICE_PORT,
+    scan_timeout: float = 8.0,
+    decision_timeout: float = 30.0,
+) -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    script_path = service_task_script_path()
+    log_dir = Path(tempfile.gettempdir()) / "codex-ble-buddy"
+    log_path = log_dir / "service.log"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "@echo off",
+        f'if not exist "{log_dir}" mkdir "{log_dir}"',
+        f'cd /d "{repo_root}"',
+        f'{service_command(host, port, scan_timeout, decision_timeout)} >> "{log_path}" 2>&1',
+        "",
+    ]
+    script_path.write_text("\r\n".join(lines), encoding="ascii")
+    return script_path
+
+
+def write_service_task_launcher(script_path: Path) -> Path:
+    launcher_path = service_task_launcher_path()
+    launcher_path.parent.mkdir(parents=True, exist_ok=True)
+    command = f'cmd.exe /c "{script_path}"'
+    lines = [
+        'Set shell = CreateObject("WScript.Shell")',
+        f"shell.Run {_vbscript_string(command)}, 0, False",
+        "",
+    ]
+    launcher_path.write_text("\r\n".join(lines), encoding="ascii")
+    return launcher_path
+
+
+def task_is_installed(task_name: str = DEFAULT_TASK_NAME) -> bool:
+    completed = subprocess.run(
+        ["schtasks", "/Query", "/TN", task_name],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
+def install_service_task(
+    task_name: str = DEFAULT_TASK_NAME,
+    host: str = DEFAULT_SERVICE_HOST,
+    port: int = DEFAULT_SERVICE_PORT,
+    scan_timeout: float = 8.0,
+    decision_timeout: float = 30.0,
+) -> bool:
+    if os.name != "nt":
+        raise RuntimeError("Scheduled task install is only supported on Windows")
+    script_path = write_service_task_script(host, port, scan_timeout, decision_timeout)
+    launcher_path = write_service_task_launcher(script_path)
+    task_command = f'wscript.exe //B //Nologo "{launcher_path}"'
+    completed = subprocess.run(
+        [
+            "schtasks",
+            "/Create",
+            "/TN",
+            task_name,
+            "/SC",
+            "ONCE",
+            "/ST",
+            "00:00",
+            "/TR",
+            task_command,
+            "/F",
+            "/RL",
+            "LIMITED",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError((completed.stderr or completed.stdout).strip() or "failed to install scheduled task")
+    return True
+
+
+def uninstall_service_task(task_name: str = DEFAULT_TASK_NAME) -> bool:
+    if os.name != "nt":
+        raise RuntimeError("Scheduled task uninstall is only supported on Windows")
+    completed = subprocess.run(
+        ["schtasks", "/Delete", "/TN", task_name, "/F"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode == 0
+
+
+def start_service_task(task_name: str = DEFAULT_TASK_NAME) -> bool:
+    if os.name != "nt":
+        return False
+    completed = subprocess.run(
+        ["schtasks", "/Run", "/TN", task_name],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode == 0
 
 
 def service_request_timeout(config: BleBuddyConfig) -> float:
@@ -319,11 +484,107 @@ def call_permission_service(
 
 
 def service_is_available(host: str = DEFAULT_SERVICE_HOST, port: int = DEFAULT_SERVICE_PORT, timeout: float = 1.0) -> bool:
+    status = service_status(host=host, port=port, timeout=timeout)
+    return bool(status and status.get("ok") is True)
+
+
+def service_status(
+    host: str = DEFAULT_SERVICE_HOST,
+    port: int = DEFAULT_SERVICE_PORT,
+    timeout: float = 1.0,
+) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(service_url(host, port, "/health"), timeout=timeout) as response:
-            return response.status == 200
-    except (OSError, urllib.error.URLError, TimeoutError):
-        return False
+            decoded = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    return decoded
+
+
+def start_service_background(
+    host: str = DEFAULT_SERVICE_HOST,
+    port: int = DEFAULT_SERVICE_PORT,
+    scan_timeout: float = 8.0,
+    decision_timeout: float = 30.0,
+) -> subprocess.Popen[Any]:
+    """Start the local BLE Buddy service in the background."""
+
+    executable = sys.executable
+    if os.name == "nt":
+        pythonw = Path(sys.executable).with_name("pythonw.exe")
+        if pythonw.exists():
+            executable = str(pythonw)
+    args = [
+        executable,
+        "-m",
+        "codex_ble_buddy.cli",
+        "serve",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--scan-timeout",
+        str(int(scan_timeout) if float(scan_timeout).is_integer() else scan_timeout),
+        "--timeout",
+        str(int(decision_timeout) if float(decision_timeout).is_integer() else decision_timeout),
+    ]
+    startupinfo = None
+    creationflags = 0
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    log_dir = Path(tempfile.gettempdir()) / "codex-ble-buddy"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "service.log"
+    if os.name == "nt":
+        arg_list = "@(" + ",".join(_powershell_string(arg) for arg in args[1:]) + ")"
+        command = " ".join(
+            [
+                "Start-Process",
+                "-FilePath",
+                _powershell_string(executable),
+                "-ArgumentList",
+                arg_list,
+                "-WorkingDirectory",
+                _powershell_string(str(Path(__file__).resolve().parents[2])),
+                "-WindowStyle",
+                "Hidden",
+            ]
+        )
+        return subprocess.Popen(
+            ["powershell", "-NoProfile", "-Command", command],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+    log_handle = log_path.open("ab")
+    return subprocess.Popen(
+        args,
+        cwd=str(Path(__file__).resolve().parents[2]),
+        stdin=subprocess.DEVNULL,
+        stdout=log_handle,
+        stderr=log_handle,
+        startupinfo=startupinfo,
+        creationflags=creationflags,
+        close_fds=True,
+    )
+
+
+def wait_for_service(
+    host: str = DEFAULT_SERVICE_HOST,
+    port: int = DEFAULT_SERVICE_PORT,
+    timeout: float = 5.0,
+) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if service_is_available(host=host, port=port, timeout=0.5):
+            return True
+        time.sleep(0.1)
+    return service_is_available(host=host, port=port, timeout=0.5)
 
 
 def run_service(config: BleBuddyConfig, host: str = DEFAULT_SERVICE_HOST, port: int = DEFAULT_SERVICE_PORT) -> int:
@@ -331,6 +592,7 @@ def run_service(config: BleBuddyConfig, host: str = DEFAULT_SERVICE_HOST, port: 
     runtime.start()
     server = PermissionHTTPServer((host, port), PermissionRequestHandler)
     server.decision_handler = runtime.handle_permission
+    server.status_handler = runtime.status
     logger.info("codex-ble-buddy service listening on http://%s:%d", host, port)
     try:
         server.serve_forever()

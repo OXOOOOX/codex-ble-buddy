@@ -6,8 +6,10 @@ from pathlib import Path
 from codex_ble_buddy.claude_config import (
     build_claude_hook_group,
     command_is_managed,
+    default_claude_settings_path,
     has_managed_claude_hook_settings,
     prompt_settings_path,
+    setup_claude_settings,
     upsert_claude_hook_settings,
 )
 
@@ -23,6 +25,8 @@ class ClaudeConfigTests(unittest.TestCase):
 
     def test_command_is_managed_detects_known_commands(self) -> None:
         self.assertTrue(command_is_managed("python -m codex_ble_buddy.cli approve-request --timeout 30"))
+        self.assertTrue(command_is_managed(r"C:\Users\me\Scripts\codex-ble-buddy.exe approve-request --timeout 30"))
+        self.assertTrue(command_is_managed("codex-ble-buddy approve-request --timeout 30"))
         self.assertTrue(command_is_managed("python C:\\repo\\scripts\\codex_permission_hook.py --timeout 30"))
         self.assertFalse(command_is_managed("python other_hook.py"))
         self.assertFalse(command_is_managed(None))
@@ -68,6 +72,30 @@ class ClaudeConfigTests(unittest.TestCase):
 
         self.assertEqual(result, Path(r"C:\Users\me\.claude\settings.json"))
         self.assertIn("Claude Code 设置文件路径", stdout.getvalue())
+
+    def test_default_claude_settings_path_uses_current_home(self) -> None:
+        self.assertEqual(default_claude_settings_path(), Path.home() / ".claude" / "settings.json")
+
+    def test_setup_claude_settings_supports_auto_start_service(self) -> None:
+        path = Path("test-claude-auto-start-settings.json")
+        stdout = io.StringIO()
+        try:
+            result = setup_claude_settings(
+                timeout=30.0,
+                settings_path=path,
+                assume_yes=True,
+                auto_start_service=True,
+                stdout=stdout,
+            )
+
+            settings = json.loads(path.read_text(encoding="utf-8"))
+            command = settings["hooks"]["PermissionRequest"][-1]["hooks"][0]["command"]
+
+            self.assertEqual(result, 0)
+            self.assertIn("--auto-start-service", command)
+        finally:
+            if path.exists():
+                path.unlink()
 
 
 if __name__ == "__main__":

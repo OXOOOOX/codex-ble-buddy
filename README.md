@@ -35,12 +35,12 @@ This project connects Codex `PermissionRequest` hooks to a BLE device that expos
 
 Install dependencies before configuring the Codex hook. The CLI and hook do not auto-install packages at runtime because permission prompts should stay fast and predictable.
 
-On Windows, double-click `首次配置.bat` in this folder for Chinese prompts. It installs dependencies, runs `doctor`, and opens the Codex hook configuration prompt. An English alias, `first-time-setup.bat`, is also provided.
+On Windows, double-click `首次配置.bat` in this folder for Chinese prompts. It installs dependencies, runs `doctor`, opens the Codex and Claude Code hook configuration prompts, and enables local service auto-start for both hooks. An English alias, `first-time-setup.bat`, is also provided.
 
 From Windows PowerShell:
 
 ```powershell
-cd C:\Users\23479\Documents\GitHub\codex-ble-buddy
+cd <path-to-codex-ble-buddy>
 py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
@@ -52,6 +52,12 @@ Configure Codex to use the BLE approval hook:
 
 ```powershell
 codex-ble-buddy setup-codex
+```
+
+Configure Claude Code to use the same BLE approval hook:
+
+```powershell
+codex-ble-buddy setup-claude
 ```
 
 For Chinese prompts, run:
@@ -67,6 +73,15 @@ For faster and more reliable approvals, start the persistent BLE service before 
 ```powershell
 codex-ble-buddy serve
 ```
+
+If you want the hook to start that local service when it is offline, opt in during setup:
+
+```powershell
+codex-ble-buddy setup-codex --auto-start-service
+codex-ble-buddy setup-claude --auto-start-service
+```
+
+The hook cannot ask an interactive question while Codex is waiting for JSON output, so auto-start is controlled by this setup-time consent. With this flag, setup installs a Windows scheduled task named `codex-ble-buddy` after the hook config is written, and the hook starts that task when the service is offline. Without this flag, the hook only uses an already-running service and falls back to the one-shot BLE path.
 
 If you do not want an editable install:
 
@@ -115,6 +130,22 @@ codex-ble-buddy serve
 
 With the service running, hook requests use the local service first and reuse the persistent BLE connection. If the service is not available, the hook falls back to the one-shot scan/connect flow.
 
+Configure the hook to start the service automatically when it is offline:
+
+```powershell
+codex-ble-buddy setup-codex --auto-start-service
+```
+
+You can also manage the Windows scheduled task directly:
+
+```powershell
+codex-ble-buddy install-service-task
+codex-ble-buddy start-service-task
+codex-ble-buddy uninstall-service-task
+```
+
+When started through the scheduled task, service logs are written to `%TEMP%\codex-ble-buddy\service.log`.
+
 Send a test approval prompt through the local service:
 
 ```powershell
@@ -134,7 +165,7 @@ codex-ble-buddy doctor
 ```
 
 `doctor` also reports whether the Codex hook managed by this project is configured in your default Codex config file.
-It also reports whether the local persistent service is online at `http://127.0.0.1:8765`.
+It also reports whether the local persistent service is online at `http://127.0.0.1:8765` and whether its BLE connection is currently connected.
 
 ## Codex Hook Configuration
 
@@ -149,7 +180,7 @@ Examples are also provided in:
 - `examples/hooks.json`
 - `examples/config.toml`
 
-Use the absolute path to `scripts/codex_permission_hook.py` in your local checkout.
+Prefer the module entry point shown below after installing the project into the active Python environment. The setup commands generate a command with the current Python executable automatically.
 
 Example `~/.codex/hooks.json`:
 
@@ -162,7 +193,7 @@ Example `~/.codex/hooks.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "python C:\\Users\\23479\\Documents\\GitHub\\codex-ble-buddy\\scripts\\codex_permission_hook.py --timeout 30",
+            "command": "python -m codex_ble_buddy.cli approve-request --timeout 30 --auto-start-service",
             "timeout": 30,
             "statusMessage": "Checking approval request"
           }
@@ -186,7 +217,7 @@ matcher = ".*"
 
 [[hooks.PermissionRequest.hooks]]
 type = "command"
-command = "python C:\\Users\\23479\\Documents\\GitHub\\codex-ble-buddy\\scripts\\codex_permission_hook.py --timeout 30"
+command = "python -m codex_ble_buddy.cli approve-request --timeout 30 --auto-start-service"
 timeout = 30
 statusMessage = "Checking approval request"
 ```
