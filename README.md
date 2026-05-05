@@ -89,6 +89,30 @@ They also generate hook commands with the current Python executable, so users do
 
 If `doctor`, `scan`, or `send-test` reports that `bleak` is unavailable, install dependencies with `python -m pip install -e .` or `python -m pip install -r requirements.txt`. Hooks never install packages at runtime.
 
+## StickS3 Firmware
+
+The matching StickS3 firmware source is included in this repository:
+
+- Source: `firmware/code-buddy-sticks3/`
+- Source zip: `firmware/code-buddy-sticks3-source.zip`
+- M5Burner binary: `firmware/m5burner/054cc8a7b876c402854d72aa809b6401.bin`
+- Upstream: [CharlexH/CodeBuddy](https://github.com/CharlexH/CodeBuddy), firmware copied from commit `8ef537a4c66131575d951b838bb42b13f8a2da31`
+
+Build with PlatformIO:
+
+```powershell
+cd firmware\code-buddy-sticks3
+pio run
+```
+
+Flash directly:
+
+```powershell
+pio run -t upload
+```
+
+The firmware source keeps the upstream `LICENSE`. The bundled `characters/bufo/` GIF assets have separate third-party artwork terms documented in `firmware/code-buddy-sticks3/LICENSE` and `firmware/code-buddy-sticks3/characters/bufo/README.md`.
+
 ## Install For Development
 
 From Windows PowerShell:
