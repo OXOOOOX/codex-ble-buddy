@@ -1,25 +1,21 @@
 # codex-ble-buddy
 
-Cross-platform BLE bridge for OpenAI Codex approvals and M5StickS3 Buddy hardware.
+BLE approval bridge for OpenAI Codex, Claude Code, and M5StickS3 Buddy hardware.
 
-This project connects Codex `PermissionRequest` hooks to a BLE device that exposes a Nordic UART Service style interface. The first MVP targets Windows with Python and `bleak`.
+`codex-ble-buddy` connects Codex or Claude Code `PermissionRequest` hooks to a BLE Buddy device that speaks a Nordic UART Service style protocol. Approval requests appear on the Buddy hardware, and the hook only returns `allow` or `deny` after the device sends an explicit decision.
 
-## Support Status
+The current implementation is focused on Windows 10/11 with Python and `bleak`.
 
-- Codex CLI: supported through the official `PermissionRequest` hook path.
-- Codex App/Desktop: supported through the same `~/.codex/config.toml` hook configuration used by Codex CLI.
-- The setup command sets `approval_policy = "untrusted"` so trusted commands can run automatically while untrusted requests are sent through the Buddy approval hook.
-- The installed matcher is `.*`, so every Codex request that produces a `PermissionRequest` is forwarded to Buddy for approval.
-- Windows UI automation for non-hook approval dialogs is intentionally out of scope for the MVP.
+## What Works
 
-## MVP Scope
+- Codex CLI and Codex App/Desktop through `~/.codex/config.toml`.
+- Claude Code through `~/.claude/settings.json`.
+- Persistent local BLE service on `127.0.0.1:8765`.
+- Optional hook auto-start through a Windows scheduled task named `codex-ble-buddy`.
+- BLE devices advertising as `Codex-*`, `CodeBuddy*`, or `Buddy*`.
+- Safe failure behavior: no device response means no decision, never default allow.
 
-- Scan for BLE devices named `Codex-*`, `CodeBuddy*`, or `Buddy*`.
-- Connect with Nordic UART Service UUIDs.
-- Send approval request JSON to the device.
-- Wait for an explicit `allow` or `deny` response.
-- Provide a Codex hook that never defaults to allow.
-- Keep the first version focused on Codex hook approvals.
+Windows UI automation for non-hook approval dialogs is intentionally out of scope.
 
 ## Requirements
 
@@ -31,65 +27,67 @@ This project connects Codex `PermissionRequest` hooks to a BLE device that expos
   - `CodeBuddy`
   - `Buddy`
 
-## First-Time Setup
+## Quick Start
 
-Install dependencies before configuring the Codex hook. The CLI and hook do not auto-install packages at runtime because permission prompts should stay fast and predictable.
+For the guided Windows setup, double-click one of these scripts from the repository folder:
 
-On Windows, double-click `首次配置.bat` in this folder for Chinese prompts. It installs dependencies, runs `doctor`, opens the Codex and Claude Code hook configuration prompts, and enables local service auto-start for both hooks. An English alias, `first-time-setup.bat`, is also provided.
+- `首次配置.bat`: Chinese prompts.
+- `first-time-setup.bat`: English prompts.
 
-From Windows PowerShell:
+The first-time setup script installs dependencies, runs `doctor`, configures Codex, optionally configures Claude Code, and enables local service auto-start for the configured hooks.
+
+Manual setup from PowerShell:
 
 ```powershell
-cd <path-to-codex-ble-buddy>
+cd C:\path\to\codex-ble-buddy
 py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
 python -m pip install -e .
 codex-ble-buddy doctor
-```
-
-Configure Codex to use the BLE approval hook:
-
-```powershell
-codex-ble-buddy setup-codex
-```
-
-Configure Claude Code to use the same BLE approval hook:
-
-```powershell
-codex-ble-buddy setup-claude
-```
-
-For Chinese prompts, run:
-
-```powershell
-codex-ble-buddy setup-codex --language zh
-```
-
-The setup command shows the system default Codex config path, lets you accept it or type a custom `config.toml` path, then asks for confirmation before writing. It sets `approval_policy = "untrusted"` and adds a managed `PermissionRequest` hook block. Later runs can update that managed block without replacing the rest of your Codex config.
-
-For faster and more reliable approvals, start the persistent BLE service before opening Codex or Claude Code:
-
-```powershell
-codex-ble-buddy serve
-```
-
-If you want the hook to start that local service when it is offline, opt in during setup:
-
-```powershell
 codex-ble-buddy setup-codex --auto-start-service
 codex-ble-buddy setup-claude --auto-start-service
 ```
 
-The hook cannot ask an interactive question while Codex is waiting for JSON output, so auto-start is controlled by this setup-time consent. With this flag, setup installs a Windows scheduled task named `codex-ble-buddy` after the hook config is written, and the hook starts that task when the service is offline. Without this flag, the hook only uses an already-running service and falls back to the one-shot BLE path.
+The setup commands use the current Windows user automatically:
 
-If you do not want an editable install:
+- Codex default config: `%USERPROFILE%\.codex\config.toml`
+- Claude Code default settings: `%USERPROFILE%\.claude\settings.json`
 
-```powershell
-python -m pip install -r requirements.txt
-```
+They also generate hook commands with the current Python executable, so users do not need to copy a machine-specific path.
 
-If `doctor`, `scan`, or `send-test` reports that `bleak` is unavailable, run one of the install commands above. The Codex hook returns no decision when dependencies are missing; it never installs packages or approves automatically.
+## Recommended Test Flow
+
+1. Confirm the Buddy is discoverable:
+
+   ```powershell
+   codex-ble-buddy scan --timeout 10
+   ```
+
+2. Start or auto-start the persistent service:
+
+   ```powershell
+   codex-ble-buddy start-service-task
+   codex-ble-buddy doctor
+   ```
+
+   A healthy service reports `online` and ideally `(connected)`.
+
+3. Send a test approval through the service:
+
+   ```powershell
+   codex-ble-buddy send-test --service --timeout 30
+   ```
+
+   Press `allow` on the Buddy. Expected output:
+
+   ```json
+   {"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}
+   ```
+
+4. Restart Codex or Claude Code after changing hook settings so the app reloads its config.
+
+If `doctor`, `scan`, or `send-test` reports that `bleak` is unavailable, install dependencies with `python -m pip install -e .` or `python -m pip install -r requirements.txt`. Hooks never install packages at runtime.
 
 ## Install For Development
 
@@ -108,18 +106,18 @@ If editable install is not needed:
 python -m pip install -r requirements.txt
 ```
 
-## CLI Usage
+## CLI Reference
+
+Diagnostics:
+
+```powershell
+codex-ble-buddy doctor
+```
 
 Scan for Buddy devices:
 
 ```powershell
-codex-ble-buddy scan
-```
-
-Send a test approval prompt:
-
-```powershell
-codex-ble-buddy send-test --timeout 30
+codex-ble-buddy scan --timeout 10
 ```
 
 Keep a persistent BLE connection warm:
@@ -128,15 +126,14 @@ Keep a persistent BLE connection warm:
 codex-ble-buddy serve
 ```
 
-With the service running, hook requests use the local service first and reuse the persistent BLE connection. If the service is not available, the hook falls back to the one-shot scan/connect flow.
-
-Configure the hook to start the service automatically when it is offline:
+Configure hooks:
 
 ```powershell
 codex-ble-buddy setup-codex --auto-start-service
+codex-ble-buddy setup-claude --auto-start-service
 ```
 
-You can also manage the Windows scheduled task directly:
+Manage the Windows scheduled task:
 
 ```powershell
 codex-ble-buddy install-service-task
@@ -144,38 +141,35 @@ codex-ble-buddy start-service-task
 codex-ble-buddy uninstall-service-task
 ```
 
-When started through the scheduled task, service logs are written to `%TEMP%\codex-ble-buddy\service.log`.
-
 Send a test approval prompt through the local service:
 
 ```powershell
 codex-ble-buddy send-test --service --timeout 30
 ```
 
-Run the Codex hook flow manually with sample input:
+Run the hook flow manually with sample input:
 
 ```powershell
-'{"hookEventName":"PermissionRequest","tool":"shell","command":"dir","reason":"test"}' | codex-ble-buddy approve-request --timeout 30
+'{"hookEventName":"PermissionRequest","tool":"shell","command":"dir","reason":"test"}' | codex-ble-buddy approve-request --timeout 30 --auto-start-service
 ```
 
-Doctor check:
-
-```powershell
-codex-ble-buddy doctor
-```
+When started through the scheduled task, service logs are written to `%TEMP%\codex-ble-buddy\service.log`.
 
 `doctor` also reports whether the Codex hook managed by this project is configured in your default Codex config file.
 It also reports whether the local persistent service is online at `http://127.0.0.1:8765` and whether its BLE connection is currently connected.
 
-## Codex Hook Configuration
+## Hook Configuration Details
 
-Use the interactive setup command first:
+Use the setup commands first:
 
 ```powershell
-codex-ble-buddy setup-codex
+codex-ble-buddy setup-codex --auto-start-service
+codex-ble-buddy setup-claude --auto-start-service
 ```
 
-Examples are also provided in:
+Codex setup sets `approval_policy = "untrusted"`, enables `codex_hooks`, and installs a managed `PermissionRequest` hook block. Claude Code setup writes the equivalent managed hook into `settings.json`. Later setup runs replace this project's managed hook without replacing unrelated user settings.
+
+Examples are provided in:
 
 - `examples/hooks.json`
 - `examples/config.toml`
@@ -286,6 +280,9 @@ The hook never approves by default.
 - If the device was previously paired and behaves oddly, remove it from Windows Bluetooth settings and retry.
 - Run `codex-ble-buddy scan --timeout 10` to confirm advertisement visibility.
 - Keep the device close during the MVP connection tests.
+- `No active codex turn` on the Buddy means the service is linked but idle. It is expected after an approval completes.
+- If `send-test --service` returns `{}`, check `%TEMP%\codex-ble-buddy\service.log`. `Forwarded permission request ...` followed by `Timed out waiting for BLE Buddy notification` means the PC wrote the request to BLE but did not receive an allow/deny notification.
+- If hook settings changed but Codex or Claude Code does not prompt, restart the app so it reloads its config file.
 
 ## Tests
 
